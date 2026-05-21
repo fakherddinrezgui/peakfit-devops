@@ -1,0 +1,73 @@
+---
+- name: Déployer PeakFit sur EC2
+  hosts: web
+  become: yes
+
+  tasks:
+
+    - name: Mettre à jour le système
+      yum:
+        name: "*"
+        state: latest
+
+    - name: Installer Docker
+      yum:
+        name: docker
+        state: present
+
+    - name: Démarrer Docker
+      service:
+        name: docker
+        state: started
+        enabled: yes
+
+    - name: Ajouter ec2-user au groupe docker
+      user:
+        name: ec2-user
+        groups: docker
+        append: yes
+
+    - name: Installer Docker Compose
+      get_url:
+        url: "https://github.com/docker/compose/releases/download/v2.20.0/docker-compose-linux-x86_64"
+        dest: /usr/local/bin/docker-compose
+        mode: "0755"
+
+    - name: Créer lien symbolique docker-compose
+      file:
+        src: /usr/local/bin/docker-compose
+        dest: /usr/bin/docker-compose
+        state: link
+
+    - name: Créer le dossier /opt/peakfit
+      file:
+        path: /opt/peakfit
+        state: directory
+        owner: ec2-user
+        mode: "0755"
+
+    - name: Copier docker-compose.yml
+      copy:
+        src: docker-compose.yml
+        dest: /opt/peakfit/docker-compose.yml
+        owner: ec2-user
+
+    - name: Copier nginx.conf
+      copy:
+        src: nginx.conf
+        dest: /opt/peakfit/nginx.conf
+        owner: ec2-user
+
+    - name: Lancer PeakFit
+      command: /usr/local/bin/docker-compose up -d
+      args:
+        chdir: /opt/peakfit
+
+    # ✅ FIX : docker ps simple sans format {{}}
+    - name: Vérifier les containers
+      command: docker ps
+      register: result
+
+    - name: Afficher les containers actifs
+      debug:
+        var: result.stdout_lines

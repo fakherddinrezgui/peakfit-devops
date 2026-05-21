@@ -1,0 +1,62 @@
+name: PeakFit CI/CD Pipeline
+
+on:
+  push:
+    branches: ["main", "backend", "frontend"]
+
+jobs:
+
+  build:
+    name: Build Docker Images
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Build Backend
+        run: docker build -f Dockerfile.backend -t peakfit-backend:latest .
+
+      - name: Build Frontend
+        run: docker build -f Dockerfile.frontend -t peakfit-frontend:latest .
+
+      - name: Sauvegarder images
+        run: |
+          docker save peakfit-backend:latest  -o backend.tar
+          docker save peakfit-frontend:latest -o frontend.tar
+
+      - uses: actions/upload-artifact@v3
+        with:
+          name: docker-images
+          path: "*.tar"
+
+  deploy:
+    name: Deploy with Ansible
+    runs-on: ubuntu-latest
+    needs: build
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - uses: actions/download-artifact@v3
+        with:
+          name: docker-images
+          path: ansible/
+
+      - name: Installer Ansible
+        run: sudo apt update && sudo apt install -y ansible
+
+      - name: Configurer clé SSH
+        run: |
+          echo "${{ secrets.EC2_KEY }}" > peakfit-key.pem
+          chmod 600 peakfit-key.pem
+
+      - name: Lancer Ansible
+        run: |
+          ansible-playbook \
+            -i ansible/inventory.ini \
+            ansible/deploy.yml \
+            --ssh-common-args='-o StrictHostKeyChecking=no'
+        env:
+          ANSIBLE_HOST_KEY_CHECKING: "False"
+
+      - name: URL finale
+        run: echo "🌐 http://peakfit-alb-1890087041.us-east-1.elb.amazonaws.com"
