@@ -2,7 +2,7 @@ name: PeakFit CI/CD Pipeline
 
 on:
   push:
-    branches: ["main", "backend", "frontend"]
+    branches: ["main"]
 
 jobs:
 
@@ -10,23 +10,28 @@ jobs:
     name: Build Docker Images
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
       - name: Build Backend
-        run: docker build -f Dockerfile.backend -t peakfit-backend:latest .
+        run: |
+          cd peakFit
+          docker build -f Dockerfile.backend -t peakfit-backend:latest .
 
       - name: Build Frontend
-        run: docker build -f Dockerfile.frontend -t peakfit-frontend:latest .
+        run: |
+          cd peakFit
+          docker build -f Dockerfile.frontend -t peakfit-frontend:latest .
 
       - name: Sauvegarder images
         run: |
           docker save peakfit-backend:latest  -o backend.tar
           docker save peakfit-frontend:latest -o frontend.tar
 
-      - uses: actions/upload-artifact@v3
+      - uses: actions/upload-artifact@v4
         with:
           name: docker-images
           path: "*.tar"
+          retention-days: 1
 
   deploy:
     name: Deploy with Ansible
@@ -34,9 +39,9 @@ jobs:
     needs: build
 
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
-      - uses: actions/download-artifact@v3
+      - uses: actions/download-artifact@v4
         with:
           name: docker-images
           path: ansible/
@@ -59,4 +64,4 @@ jobs:
           ANSIBLE_HOST_KEY_CHECKING: "False"
 
       - name: URL finale
-        run: echo "🌐 http://peakfit-alb-1890087041.us-east-1.elb.amazonaws.com"
+        run: echo "🌐 http://peakfit-alb-775938904.us-east-1.elb.amazonaws.com"
