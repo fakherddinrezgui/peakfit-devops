@@ -14,40 +14,37 @@ services:
     restart: unless-stopped
 
   frontend:
-    image: node:18-alpine
-    working_dir: /app
-    command: sh -c "npm install && npm start"
-    volumes:
-      - ./frontend:/app
-    environment:
-      - REACT_APP_API_URL=http://localhost:8091
+    image: peakfit-frontend:latest
     expose:
       - "3000"
     restart: unless-stopped
 
   backend:
-    image: eclipse-temurin:17-jre-alpine
-    working_dir: /app
-    command: java -jar peakfit-backend.jar
-    volumes:
-      - ./backend:/app
-    environment:
-      - SPRING_DATA_MONGODB_URI=mongodb://mongo:27017/peakfit
-      - SERVER_PORT=8091
-      - JWT_SECRET=peakfit-secret-2026
+    image: peakfit-backend:latest
     expose:
       - "8091"
+    environment:
+      - SPRING_DATASOURCE_URL=jdbc:mysql://mysql:3306/peakfit?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC
+      - SPRING_DATASOURCE_USERNAME=peakfit
+      - SPRING_DATASOURCE_PASSWORD=peakfit123
+      - JWT_SECRET=peakfit_secret_2026_change_this_key_ok
+      - JWT_EXPIRATION=604800000
     depends_on:
-      - mongo
+      - mysql
     restart: unless-stopped
 
-  mongo:
-    image: mongo:6
+  mysql:
+    image: mysql:8.0
+    environment:
+      - MYSQL_ROOT_PASSWORD=rootpassword
+      - MYSQL_DATABASE=peakfit
+      - MYSQL_USER=peakfit
+      - MYSQL_PASSWORD=peakfit123
     volumes:
-      - mongo_data:/data/db
+      - mysql_data:/var/lib/mysql
     expose:
-      - "27017"
+      - "3306"
     restart: unless-stopped
 
 volumes:
-  mongo_data:
+  mysql_data:
