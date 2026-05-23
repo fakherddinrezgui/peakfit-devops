@@ -1,0 +1,24 @@
+# Terraform — fichiers lourds et secrets
+terraform/.terraform/
+terraform/*.tfstate
+terraform/*.tfstate.backup
+terraform/.terraform.lock.hcl
+
+# Docker images
+*.tar
+/tmp/*.tar
+
+# Clés SSH
+*.pem
+*.key
+
+# Node modules
+node_modules/
+peakFit/frontend/node_modules/
+
+# Java build
+target/
+*.class
+
+# Environnement
+.env
