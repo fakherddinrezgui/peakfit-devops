@@ -1,0 +1,64 @@
+{
+  "name": "PeakFit — Suivi Sportif",
+  "short_name": "PeakFit",
+  "description": "Suivez vos activités sportives, analysez vos performances et progressez.",
+  "start_url": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "theme_color": "#E60000",
+  "background_color": "#02030a",
+  "lang": "fr",
+  "scope": "/",
+  "icons": [
+    {
+      "src": "icons/icon-72.png",
+      "sizes": "72x72",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "icons/icon-96.png",
+      "sizes": "96x96",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "icons/icon-128.png",
+      "sizes": "128x128",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Ajouter une activité",
+      "short_name": "Activité",
+      "url": "/activites",
+      "description": "Enregistrer une nouvelle séance"
+    },
+    {
+      "name": "Mes objectifs",
+      "short_name": "Objectifs",
+      "url": "/objectifs",
+      "description": "Voir mes objectifs"
+    },
+    {
+      "name": "Nutrition",
+      "short_name": "Nutrition",
+      "url": "/nutrition",
+      "description": "Journal alimentaire"
+    }
+  ]
+}

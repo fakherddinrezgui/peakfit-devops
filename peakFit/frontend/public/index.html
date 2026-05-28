@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+
+    <!-- PWA — couleur barre de statut téléphone -->
+    <meta name="theme-color" content="#E60000" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="PeakFit" />
+    <meta name="mobile-web-app-capable" content="yes" />
+
+    <!-- SEO -->
+    <meta name="description" content="PeakFit — Suivez vos activités sportives, analysez vos performances et progressez." />
+    <meta name="application-name" content="PeakFit" />
+
+    <!-- Icône navigateur -->
+    <link rel="icon" href="%PUBLIC_URL%/favicon.ico" />
+
+    <!-- Icônes iOS (Apple) -->
+    <link rel="apple-touch-icon" href="%PUBLIC_URL%/icons/icon-192.png" />
+    <link rel="apple-touch-icon" sizes="72x72"  href="%PUBLIC_URL%/icons/icon-72.png" />
+    <link rel="apple-touch-icon" sizes="96x96"  href="%PUBLIC_URL%/icons/icon-96.png" />
+    <link rel="apple-touch-icon" sizes="128x128" href="%PUBLIC_URL%/icons/icon-128.png" />
+    <link rel="apple-touch-icon" sizes="192x192" href="%PUBLIC_URL%/icons/icon-192.png" />
+    <link rel="apple-touch-icon" sizes="512x512" href="%PUBLIC_URL%/icons/icon-512.png" />
+
+    <!-- Manifest PWA -->
+    <link rel="manifest" href="%PUBLIC_URL%/manifest.json" />
+
+    <title>PeakFit</title>
+  </head>
+  <body>
+    <noscript>PeakFit nécessite JavaScript pour fonctionner.</noscript>
+    <div id="root"></div>
+
+    <!-- Enregistrement du Service Worker -->
+    <script>
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', function() {
+          navigator.serviceWorker.register('/service-worker.js')
+            .then(function(reg) {
+              console.log('✅ PeakFit PWA prête — Service Worker actif');
+            })
+            .catch(function(err) {
+              console.log('Service Worker non disponible :', err);
+            });
+        });
+      }
+    </script>
+  </body>
+</html>
