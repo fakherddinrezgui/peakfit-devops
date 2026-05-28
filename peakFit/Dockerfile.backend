@@ -1,0 +1,15 @@
+FROM maven:3.9.6-eclipse-temurin-21 AS builder
+WORKDIR /app
+COPY pom.xml .
+RUN mvn dependency:go-offline -q
+COPY src ./src
+RUN mvn package -DskipTests -q
+
+FROM eclipse-temurin:21-jre-alpine
+WORKDIR /app
+COPY --from=builder /app/target/*.jar app.jar
+EXPOSE 8091
+ENV SPRING_DATA_MONGODB_URI=mongodb://mongo:27017/peakfit
+ENV SERVER_PORT=8091
+ENV JWT_SECRET=peakfit-secret-2026
+ENTRYPOINT ["java","-XX:+UseContainerSupport","-XX:MaxRAMPercentage=75.0","-jar","app.jar"]

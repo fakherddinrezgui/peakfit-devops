@@ -1,0 +1,9 @@
+# Ignore node_modules local (Docker installe les siens)
+frontend/node_modules
+node_modules
+
+# Ignore les fichiers inutiles
+target
+*.tar
+.git
+.idea
