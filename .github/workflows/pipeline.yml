@@ -14,20 +14,25 @@ jobs:
 
       - name: Build Backend
         run: |
-          cd peakFit
-          docker build -f Dockerfile.backend -t peakfit-backend:latest .
+          docker build \
+            -f peakFit/Dockerfile.backend \
+            -t peakfit-backend:latest \
+            peakFit/
 
       - name: Build Frontend
         run: |
-          cd peakFit
-          docker build -f Dockerfile.frontend -t peakfit-frontend:latest .
+          docker build \
+            -f peakFit/Dockerfile.frontend \
+            -t peakfit-frontend:latest \
+            peakFit/
 
       - name: Sauvegarder images
         run: |
           docker save peakfit-backend:latest  -o backend.tar
           docker save peakfit-frontend:latest -o frontend.tar
 
-      - uses: actions/upload-artifact@v4
+      - name: Upload images
+        uses: actions/upload-artifact@v4
         with:
           name: docker-images
           path: "*.tar"
@@ -41,7 +46,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/download-artifact@v4
+      - name: Download images
+        uses: actions/download-artifact@v4
         with:
           name: docker-images
           path: ansible/
@@ -51,8 +57,18 @@ jobs:
 
       - name: Configurer clé SSH
         run: |
-          echo "${{ secrets.EC2_KEY }}" > peakfit-key.pem
-          chmod 600 peakfit-key.pem
+          mkdir -p ~/.ssh
+          echo "${{ secrets.EC2_KEY }}" > ~/.ssh/peakfit-key.pem
+          chmod 600 ~/.ssh/peakfit-key.pem
+
+      - name: Générer inventory avec chemin absolu
+        run: |
+          cat > ansible/inventory.ini << INVENTORY
+          [web]
+          44.200.0.253 ansible_user=ec2-user ansible_ssh_private_key_file=$HOME/.ssh/peakfit-key.pem
+          44.211.46.192 ansible_user=ec2-user ansible_ssh_private_key_file=$HOME/.ssh/peakfit-key.pem
+          INVENTORY
+          cat ansible/inventory.ini
 
       - name: Lancer Ansible
         run: |
@@ -64,4 +80,4 @@ jobs:
           ANSIBLE_HOST_KEY_CHECKING: "False"
 
       - name: URL finale
-        run: echo "🌐 http://peakfit-alb-775938904.us-east-1.elb.amazonaws.com"
+        run: echo "🌐 http://peakfit-alb-1886043407.us-east-1.elb.amazonaws.com"
