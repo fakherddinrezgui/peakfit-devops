@@ -58,16 +58,20 @@ jobs:
       - name: Configurer clé SSH
         run: |
           mkdir -p ~/.ssh
-          echo "${{ secrets.EC2_KEY }}" > ~/.ssh/peakfit-key.pem
+          # Écrit la clé avec les bons sauts de ligne
+          echo "${{ secrets.EC2_KEY }}" | sed 's/\\n/\n/g' > ~/.ssh/peakfit-key.pem
           chmod 600 ~/.ssh/peakfit-key.pem
+          # Vérifie le format
+          head -1 ~/.ssh/peakfit-key.pem
+          wc -l ~/.ssh/peakfit-key.pem
 
       - name: Générer inventory
         run: |
           printf '[web]\n44.202.222.222 ansible_user=ec2-user ansible_ssh_private_key_file=%s/.ssh/peakfit-key.pem\n34.227.151.150 ansible_user=ec2-user ansible_ssh_private_key_file=%s/.ssh/peakfit-key.pem\n' "$HOME" "$HOME" > ansible/inventory.ini
           cat ansible/inventory.ini
 
-      - name: Attendre EC2 (60s)
-        run: sleep 60
+      - name: Attendre EC2 (30s)
+        run: sleep 30
 
       - name: Lancer Ansible
         run: |
