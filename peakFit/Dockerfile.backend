@@ -9,7 +9,13 @@ FROM eclipse-temurin:21-jre-alpine
 WORKDIR /app
 COPY --from=builder /app/target/*.jar app.jar
 EXPOSE 8091
-ENV SPRING_DATA_MONGODB_URI=mongodb://mongo:27017/peakfit
+
+# MySQL — correspond exactement à application.properties
+ENV SPRING_DATASOURCE_URL=jdbc:mysql://mysql:3306/peakfit?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC
+ENV SPRING_DATASOURCE_USERNAME=peakfit
+ENV SPRING_DATASOURCE_PASSWORD=peakfit123
 ENV SERVER_PORT=8091
-ENV JWT_SECRET=peakfit-secret-2026
+ENV JWT_SECRET=peakfit_secret_2026_change_this_key_ok
+ENV JWT_EXPIRATION=604800000
+
 ENTRYPOINT ["java","-XX:+UseContainerSupport","-XX:MaxRAMPercentage=75.0","-jar","app.jar"]

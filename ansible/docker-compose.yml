@@ -27,7 +27,7 @@ services:
       - SPRING_DATASOURCE_URL=jdbc:mysql://mysql:3306/peakfit?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC
       - SPRING_DATASOURCE_USERNAME=peakfit
       - SPRING_DATASOURCE_PASSWORD=peakfit123
-      - JWT_SECRET=peakfit_secret_2026_change_this_key_ok
+      - JWT_SECRET=PeakF1t@2026#SecureKey$MySQL!XyZ9qRst
       - JWT_EXPIRATION=604800000
     depends_on:
       - mysql
