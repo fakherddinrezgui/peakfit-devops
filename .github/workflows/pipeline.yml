@@ -52,8 +52,12 @@ jobs:
           name: docker-images
           path: ansible/
 
-      - name: Installer Ansible
-        run: sudo apt update && sudo apt install -y ansible
+      - name: Installer Ansible version compatible
+        run: |
+          sudo apt update
+          sudo apt install -y python3-pip
+          pip3 install ansible==7.6.0
+          ansible --version
 
       - name: Configurer cle SSH
         run: |
