@@ -1,14 +1,18 @@
 ---
+- name: Installer Python3 d'abord
+  hosts: web
+  become: yes
+  gather_facts: no
+  tasks:
+    - name: Installer python3
+      raw: yum install -y python3
+      changed_when: false
+
 - name: Déployer PeakFit sur EC2
   hosts: web
   become: yes
 
   tasks:
-
-    - name: Mettre à jour le système
-      yum:
-        name: "*"
-        state: latest
 
     - name: Installer Docker
       yum:
@@ -33,13 +37,13 @@
         dest: /usr/local/bin/docker-compose
         mode: "0755"
 
-    - name: Créer lien symbolique docker-compose
+    - name: Lien symbolique docker-compose
       file:
         src: /usr/local/bin/docker-compose
         dest: /usr/bin/docker-compose
         state: link
 
-    - name: Créer le dossier /opt/peakfit
+    - name: Créer dossier /opt/peakfit
       file:
         path: /opt/peakfit
         state: directory
@@ -58,16 +62,39 @@
         dest: /opt/peakfit/nginx.conf
         owner: ec2-user
 
+    - name: Copier image backend
+      copy:
+        src: backend.tar
+        dest: /opt/peakfit/backend.tar
+        owner: ec2-user
+
+    - name: Copier image frontend
+      copy:
+        src: frontend.tar
+        dest: /opt/peakfit/frontend.tar
+        owner: ec2-user
+
+    - name: Charger image backend
+      command: docker load -i /opt/peakfit/backend.tar
+
+    - name: Charger image frontend
+      command: docker load -i /opt/peakfit/frontend.tar
+
+    - name: Arrêter anciens containers
+      command: /usr/local/bin/docker-compose down
+      args:
+        chdir: /opt/peakfit
+      ignore_errors: yes
+
     - name: Lancer PeakFit
       command: /usr/local/bin/docker-compose up -d
       args:
         chdir: /opt/peakfit
 
-    # ✅ FIX : docker ps simple sans format {{}}
-    - name: Vérifier les containers
+    - name: Vérifier containers
       command: docker ps
       register: result
 
-    - name: Afficher les containers actifs
+    - name: Afficher containers
       debug:
         var: result.stdout_lines
