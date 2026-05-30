@@ -55,18 +55,16 @@ jobs:
       - name: Installer Ansible
         run: sudo apt update && sudo apt install -y ansible
 
-      - name: Configurer clé SSH
+      - name: Configurer cle SSH
         run: |
           mkdir -p ~/.ssh
           echo "${{ secrets.EC2_KEY }}" | sed 's/\\n/\n/g' > ~/.ssh/peakfit-key.pem
           chmod 600 ~/.ssh/peakfit-key.pem
 
-      - name: Mettre à jour inventory avec chemin absolu
-        run: |
-          sed -i "s|peakfit-key.pem|/home/runner/.ssh/peakfit-key.pem|g" ansible/inventory.ini
-          cat ansible/inventory.ini
+      - name: Afficher inventory
+        run: cat ansible/inventory.ini
 
-      - name: Attendre EC2 (30s)
+      - name: Attendre EC2
         run: sleep 30
 
       - name: Lancer Ansible
@@ -79,4 +77,4 @@ jobs:
           ANSIBLE_HOST_KEY_CHECKING: "False"
 
       - name: URL finale
-        run: echo "🌐 http://peakfit-alb-1215627608.us-east-1.elb.amazonaws.com"
+        run: echo "http://peakfit-alb-1215627608.us-east-1.elb.amazonaws.com"
