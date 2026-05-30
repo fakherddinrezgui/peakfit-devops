@@ -39,7 +39,7 @@ jobs:
           retention-days: 1
 
   deploy:
-    name: Deploy with Ansible
+    name: Deploy to EC2
     runs-on: ubuntu-latest
     needs: build
 
@@ -50,14 +50,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: docker-images
-          path: ansible/
-
-      - name: Installer Ansible version compatible
-        run: |
-          sudo apt update
-          sudo apt install -y python3-pip
-          pip3 install ansible==7.6.0
-          ansible --version
+          path: ./
 
       - name: Configurer cle SSH
         run: |
@@ -65,20 +58,77 @@ jobs:
           echo "${{ secrets.EC2_KEY }}" | sed 's/\\n/\n/g' > ~/.ssh/peakfit-key.pem
           chmod 600 ~/.ssh/peakfit-key.pem
 
-      - name: Afficher inventory
-        run: cat ansible/inventory.ini
-
-      - name: Attendre EC2
-        run: sleep 30
-
-      - name: Lancer Ansible
+      - name: Deploy sur EC2-1
         run: |
-          ansible-playbook \
-            -i ansible/inventory.ini \
-            ansible/deploy.yml \
-            --ssh-common-args='-o StrictHostKeyChecking=no'
-        env:
-          ANSIBLE_HOST_KEY_CHECKING: "False"
+          IP="100.48.216.132"
+          
+          # Transfert des fichiers
+          scp -i ~/.ssh/peakfit-key.pem -o StrictHostKeyChecking=no \
+            backend.tar frontend.tar \
+            ansible/docker-compose.yml ansible/nginx.conf \
+            ec2-user@$IP:/tmp/
+          
+          # Déploiement via SSH
+          ssh -i ~/.ssh/peakfit-key.pem -o StrictHostKeyChecking=no ec2-user@$IP << 'SSHEOF'
+            set -e
+            sudo yum install -y docker
+            sudo systemctl start docker
+            sudo systemctl enable docker
+            
+            # Docker Compose
+            sudo curl -L "https://github.com/docker/compose/releases/download/v2.20.0/docker-compose-linux-x86_64" \
+              -o /usr/local/bin/docker-compose
+            sudo chmod +x /usr/local/bin/docker-compose
+            
+            # Prépare le dossier
+            sudo mkdir -p /opt/peakfit
+            sudo cp /tmp/docker-compose.yml /opt/peakfit/
+            sudo cp /tmp/nginx.conf /opt/peakfit/
+            
+            # Charge les images
+            sudo docker load -i /tmp/backend.tar
+            sudo docker load -i /tmp/frontend.tar
+            
+            # Lance les containers
+            cd /opt/peakfit
+            sudo /usr/local/bin/docker-compose down || true
+            sudo /usr/local/bin/docker-compose up -d
+            
+            sudo docker ps
+          SSHEOF
+
+      - name: Deploy sur EC2-2
+        run: |
+          IP="54.161.131.120"
+          
+          scp -i ~/.ssh/peakfit-key.pem -o StrictHostKeyChecking=no \
+            backend.tar frontend.tar \
+            ansible/docker-compose.yml ansible/nginx.conf \
+            ec2-user@$IP:/tmp/
+          
+          ssh -i ~/.ssh/peakfit-key.pem -o StrictHostKeyChecking=no ec2-user@$IP << 'SSHEOF'
+            set -e
+            sudo yum install -y docker
+            sudo systemctl start docker
+            sudo systemctl enable docker
+            
+            sudo curl -L "https://github.com/docker/compose/releases/download/v2.20.0/docker-compose-linux-x86_64" \
+              -o /usr/local/bin/docker-compose
+            sudo chmod +x /usr/local/bin/docker-compose
+            
+            sudo mkdir -p /opt/peakfit
+            sudo cp /tmp/docker-compose.yml /opt/peakfit/
+            sudo cp /tmp/nginx.conf /opt/peakfit/
+            
+            sudo docker load -i /tmp/backend.tar
+            sudo docker load -i /tmp/frontend.tar
+            
+            cd /opt/peakfit
+            sudo /usr/local/bin/docker-compose down || true
+            sudo /usr/local/bin/docker-compose up -d
+            
+            sudo docker ps
+          SSHEOF
 
       - name: URL finale
         run: echo "http://peakfit-alb-1215627608.us-east-1.elb.amazonaws.com"
