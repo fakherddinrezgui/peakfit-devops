@@ -15,7 +15,7 @@ ENV SPRING_DATASOURCE_URL=jdbc:mysql://mysql:3306/peakfit?useSSL=false&allowPubl
 ENV SPRING_DATASOURCE_USERNAME=peakfit
 ENV SPRING_DATASOURCE_PASSWORD=peakfit123
 ENV SERVER_PORT=8091
-ENV JWT_SECRET=peakfit_secret_2026_change_this_key_ok
+ENV JWT_SECRET=PeakF1t@2026#SecureKey$MySQL!XyZ9qRst
 ENV JWT_EXPIRATION=604800000
 
 ENTRYPOINT ["java","-XX:+UseContainerSupport","-XX:MaxRAMPercentage=75.0","-jar","app.jar"]
