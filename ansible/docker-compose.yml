@@ -24,26 +24,32 @@ services:
     expose:
       - "8091"
     environment:
-      - SPRING_DATASOURCE_URL=jdbc:mysql://mysql:3306/peakfit?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC
-      - SPRING_DATASOURCE_USERNAME=peakfit
-      - SPRING_DATASOURCE_PASSWORD=peakfit123
-      - JWT_SECRET=PeakF1t@2026#SecureKey$MySQL!XyZ9qRst
-      - JWT_EXPIRATION=604800000
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/peakfit?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC
+      SPRING_DATASOURCE_USERNAME: peakfit
+      SPRING_DATASOURCE_PASSWORD: peakfit123
+      JWT_SECRET: PeakF1t@2026#SecureKey$MySQL!XyZ9qRst
+      JWT_EXPIRATION: 604800000
     depends_on:
-      - mysql
+      mysql:
+        condition: service_healthy
     restart: unless-stopped
 
   mysql:
     image: mysql:8.0
     environment:
-      - MYSQL_ROOT_PASSWORD=rootpassword
-      - MYSQL_DATABASE=peakfit
-      - MYSQL_USER=peakfit
-      - MYSQL_PASSWORD=peakfit123
+      MYSQL_ROOT_PASSWORD: rootpassword
+      MYSQL_DATABASE: peakfit
+      MYSQL_USER: peakfit
+      MYSQL_PASSWORD: peakfit123
     volumes:
       - mysql_data:/var/lib/mysql
     expose:
       - "3306"
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
     restart: unless-stopped
 
 volumes:
