@@ -3,7 +3,7 @@ variable "aws_region" {
 }
 
 variable "key_name" {
-  default = "peakfit-key"
+  default = "vockey"
 }
 
 variable "instance_type" {
