@@ -1,0 +1,11 @@
+# ============================================================
+# Namespace dédié au monitoring
+# Séparé du namespace peakfit pour isoler les outils
+# ============================================================
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: monitoring
+  labels:
+    project: peakfit
+    component: monitoring

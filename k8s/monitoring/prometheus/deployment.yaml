@@ -1,0 +1,99 @@
+# ============================================================
+# Deployment Prometheus
+# Stockage des métriques sur un PVC EBS de 10GB
+# ============================================================
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: prometheus-pvc
+  namespace: monitoring
+  labels:
+    project: peakfit
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: gp2
+  resources:
+    requests:
+      # 10GB pour stocker ~15 jours de métriques
+      storage: 10Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: prometheus
+  namespace: monitoring
+  labels:
+    app: prometheus
+    project: peakfit
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: prometheus
+  # Recreate car le PVC ne peut être monté que sur 1 pod
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: prometheus
+        project: peakfit
+    spec:
+      # Utiliser le ServiceAccount avec les permissions RBAC
+      serviceAccountName: prometheus
+      # Corriger les permissions sur le volume EBS
+      securityContext:
+        fsGroup: 65534
+        runAsUser: 65534
+        runAsNonRoot: true
+      containers:
+        - name: prometheus
+          image: prom/prometheus:v2.51.0
+          args:
+            # Fichier de configuration
+            - "--config.file=/etc/prometheus/prometheus.yml"
+            # Dossier de stockage des métriques
+            - "--storage.tsdb.path=/prometheus"
+            # Garder 15 jours de données
+            - "--storage.tsdb.retention.time=15d"
+            # Activer l'API admin (pour les snapshots)
+            - "--web.enable-admin-api"
+            # Permettre le rechargement de config à chaud
+            - "--web.enable-lifecycle"
+          ports:
+            - containerPort: 9090
+              name: http
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "100m"
+            limits:
+              memory: "512Mi"
+              cpu: "300m"
+          livenessProbe:
+            httpGet:
+              path: /-/healthy
+              port: 9090
+            initialDelaySeconds: 30
+            periodSeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /-/ready
+              port: 9090
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          volumeMounts:
+            # Monter la configuration
+            - name: prometheus-config
+              mountPath: /etc/prometheus
+            # Monter le stockage persistant
+            - name: prometheus-storage
+              mountPath: /prometheus
+      volumes:
+        - name: prometheus-config
+          configMap:
+            name: prometheus-config
+        - name: prometheus-storage
+          persistentVolumeClaim:
+            claimName: prometheus-pvc

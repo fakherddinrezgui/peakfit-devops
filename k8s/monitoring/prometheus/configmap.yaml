@@ -1,0 +1,119 @@
+# ============================================================
+# Configuration Prometheus
+# Définit QUOI scraper et À QUELLE FRÉQUENCE
+# ============================================================
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-config
+  namespace: monitoring
+  labels:
+    project: peakfit
+data:
+  prometheus.yml: |
+    # ── Configuration globale ────────────────────────────────
+    global:
+      # Scraper les métriques toutes les 15 secondes
+      scrape_interval: 15s
+      # Évaluer les règles d'alerte toutes les 15 secondes
+      evaluation_interval: 15s
+      # Labels ajoutés à toutes les métriques
+      external_labels:
+        cluster: peakfit-eks
+        env: production
+
+    # ── Jobs de scraping ─────────────────────────────────────
+    scrape_configs:
+
+      # ── 1. Prometheus lui-même ──────────────────────────────
+      # Surveille ses propres métriques
+      - job_name: prometheus
+        static_configs:
+          - targets: ['localhost:9090']
+
+      # ── 2. Nodes Kubernetes ─────────────────────────────────
+      # Métriques système des nodes EC2 (CPU, RAM, disque)
+      - job_name: kubernetes-nodes
+        scheme: https
+        tls_config:
+          ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+          insecure_skip_verify: true
+        bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+        kubernetes_sd_configs:
+          - role: node
+        relabel_configs:
+          - action: labelmap
+            regex: __meta_kubernetes_node_label_(.+)
+
+      # ── 3. cAdvisor — métriques des conteneurs ──────────────
+      # CPU/RAM utilisés par chaque conteneur
+      - job_name: kubernetes-cadvisor
+        scheme: https
+        tls_config:
+          ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+          insecure_skip_verify: true
+        bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+        kubernetes_sd_configs:
+          - role: node
+        relabel_configs:
+          - action: labelmap
+            regex: __meta_kubernetes_node_label_(.+)
+          - target_label: __address__
+            replacement: kubernetes.default.svc:443
+          - source_labels: [__meta_kubernetes_node_name]
+            regex: (.+)
+            target_label: __metrics_path__
+            replacement: /api/v1/nodes/$1/proxy/metrics/cadvisor
+
+      # ── 4. Pods annotés ─────────────────────────────────────
+      # Scrape automatiquement les pods qui ont ces annotations :
+      # prometheus.io/scrape: "true"
+      # prometheus.io/port: "8091"
+      # prometheus.io/path: "/metrics"
+      - job_name: kubernetes-pods
+        kubernetes_sd_configs:
+          - role: pod
+        relabel_configs:
+          # Ne scraper que les pods avec l'annotation scrape=true
+          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
+            action: keep
+            regex: true
+          # Utiliser le path défini dans l'annotation
+          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_path]
+            action: replace
+            target_label: __metrics_path__
+            regex: (.+)
+          # Utiliser le port défini dans l'annotation
+          - source_labels: [__address__, __meta_kubernetes_pod_annotation_prometheus_io_port]
+            action: replace
+            regex: ([^:]+)(?::\d+)?;(\d+)
+            replacement: $1:$2
+            target_label: __address__
+          # Ajouter les labels du pod
+          - action: labelmap
+            regex: __meta_kubernetes_pod_label_(.+)
+          - source_labels: [__meta_kubernetes_namespace]
+            action: replace
+            target_label: kubernetes_namespace
+          - source_labels: [__meta_kubernetes_pod_name]
+            action: replace
+            target_label: kubernetes_pod_name
+
+      # ── 5. Backend PeakFit (Spring Boot) ───────────────────
+      # Scrape directement le backend sur /actuator/prometheus
+      # si Spring Actuator est configuré
+      # Sinon on utilise les métriques JVM basiques
+      - job_name: peakfit-backend
+        static_configs:
+          - targets: ['backend-svc.peakfit.svc.cluster.local:8091']
+        metrics_path: /actuator/prometheus
+        # Si /actuator/prometheus n'existe pas, on ignore l'erreur
+        honor_labels: true
+
+      # ── 6. MySQL ────────────────────────────────────────────
+      # Métriques MySQL via le service
+      - job_name: peakfit-mysql
+        static_configs:
+          - targets: ['mysql-svc.peakfit.svc.cluster.local:3306']
+        # Note : nécessite mysql-exporter pour les vraies métriques
+        # Pour l'instant on monitore juste la connectivité

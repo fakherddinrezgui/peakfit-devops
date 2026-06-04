@@ -1,0 +1,151 @@
+# ============================================================
+# ConfigMap Grafana — Datasource + Dashboard préconfigurés
+# Grafana charge automatiquement ces configs au démarrage
+# Pas besoin de configurer manuellement via l'UI
+# ============================================================
+
+# ── Datasource Prometheus ────────────────────────────────────
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-datasources
+  namespace: monitoring
+  labels:
+    app: grafana
+    project: peakfit
+data:
+  datasources.yaml: |
+    apiVersion: 1
+    datasources:
+      - name: Prometheus
+        type: prometheus
+        # URL interne K8s — Grafana contacte Prometheus
+        # via le Service ClusterIP dans le même namespace
+        url: http://prometheus-svc:9090
+        isDefault: true
+        access: proxy
+        editable: true
+        jsonData:
+          # Intervalle de scraping identique à Prometheus
+          timeInterval: "15s"
+---
+# ── Provider de dashboards ───────────────────────────────────
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboard-provider
+  namespace: monitoring
+  labels:
+    app: grafana
+    project: peakfit
+data:
+  dashboards.yaml: |
+    apiVersion: 1
+    providers:
+      - name: PeakFit
+        orgId: 1
+        # Dossier dans l'UI Grafana
+        folder: PeakFit
+        type: file
+        disableDeletion: false
+        # Recharger les dashboards toutes les 30s
+        updateIntervalSeconds: 30
+        options:
+          # Chemin où Grafana lit les dashboards JSON
+          path: /var/lib/grafana/dashboards
+---
+# ── Dashboard PeakFit ────────────────────────────────────────
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboard-peakfit
+  namespace: monitoring
+  labels:
+    app: grafana
+    project: peakfit
+data:
+  peakfit.json: |
+    {
+      "title": "PeakFit - Vue d ensemble",
+      "uid": "peakfit-overview",
+      "tags": ["peakfit", "kubernetes"],
+      "timezone": "browser",
+      "schemaVersion": 38,
+      "refresh": "30s",
+      "panels": [
+        {
+          "id": 1,
+          "title": "Pods Running",
+          "type": "stat",
+          "gridPos": {"h": 4, "w": 6, "x": 0, "y": 0},
+          "targets": [{
+            "expr": "count(kube_pod_status_phase{namespace='peakfit', phase='Running'})",
+            "legendFormat": "Pods actifs",
+            "datasource": "Prometheus"
+          }],
+          "options": {
+            "colorMode": "background",
+            "graphMode": "none"
+          }
+        },
+        {
+          "id": 2,
+          "title": "CPU Usage - Nodes",
+          "type": "timeseries",
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 4},
+          "targets": [{
+            "expr": "100 - (avg by (node) (rate(node_cpu_seconds_total{mode='idle'}[5m])) * 100)",
+            "legendFormat": "CPU {{ node }}",
+            "datasource": "Prometheus"
+          }]
+        },
+        {
+          "id": 3,
+          "title": "Memory Usage - Nodes",
+          "type": "timeseries",
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 4},
+          "targets": [{
+            "expr": "(1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100",
+            "legendFormat": "RAM %",
+            "datasource": "Prometheus"
+          }]
+        },
+        {
+          "id": 4,
+          "title": "Container CPU - PeakFit",
+          "type": "timeseries",
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 12},
+          "targets": [{
+            "expr": "sum(rate(container_cpu_usage_seconds_total{namespace='peakfit', container!=''}[5m])) by (container) * 100",
+            "legendFormat": "{{ container }}",
+            "datasource": "Prometheus"
+          }]
+        },
+        {
+          "id": 5,
+          "title": "Container Memory - PeakFit",
+          "type": "timeseries",
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 12},
+          "targets": [{
+            "expr": "sum(container_memory_usage_bytes{namespace='peakfit', container!=''}) by (container) / 1024 / 1024",
+            "legendFormat": "{{ container }} (MB)",
+            "datasource": "Prometheus"
+          }]
+        },
+        {
+          "id": 6,
+          "title": "Pod Restarts",
+          "type": "stat",
+          "gridPos": {"h": 4, "w": 6, "x": 6, "y": 0},
+          "targets": [{
+            "expr": "sum(kube_pod_container_status_restarts_total{namespace='peakfit'})",
+            "legendFormat": "Restarts",
+            "datasource": "Prometheus"
+          }],
+          "options": {
+            "colorMode": "background",
+            "graphMode": "none"
+          }
+        }
+      ]
+    }
