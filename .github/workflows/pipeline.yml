@@ -1,134 +1,239 @@
+# ============================================================
+# Pipeline CI/CD PeakFit — GitHub Actions → EKS
+# Adapté AWS Academy Learner Lab
+#
+# Déclencheurs :
+#   - Push sur main → déploiement automatique
+#   - workflow_dispatch → déploiement manuel
+# ============================================================
 name: PeakFit CI/CD Pipeline
 
 on:
   push:
     branches: ["main"]
+  # Permet de déclencher manuellement depuis l'UI GitHub
+  # Utile quand les credentials Academy ont été renouvelés
+  workflow_dispatch:
+    inputs:
+      deploy_env:
+        description: "Environnement cible"
+        required: true
+        default: "production"
+
+# ── Variables globales ───────────────────────────────────────
+env:
+  AWS_REGION: us-east-1
+  EKS_CLUSTER: peakfit-cluster
+  ECR_REGISTRY: 634166838788.dkr.ecr.us-east-1.amazonaws.com
+  BACKEND_REPO: peakfit-backend
+  FRONTEND_REPO: peakfit-frontend
+  K8S_NAMESPACE: peakfit
+  # IP du node pour REACT_APP_API_URL
+  NODE_IP: 54.173.208.56
 
 jobs:
-
-  build:
-    name: Build Docker Images
+  # ──────────────────────────────────────────────────────────
+  # JOB 1 : Build + Push Backend
+  # ──────────────────────────────────────────────────────────
+  build-backend:
+    name: Build & Push Backend
     runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
 
-      - name: Build Backend
+    steps:
+      # 1. Récupérer le code source
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # 2. Configurer les credentials AWS Academy
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      # 3. Se connecter à ECR
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      # 4. Générer un tag unique basé sur le SHA du commit
+      - name: Set image tag
+        id: tag
+        run: |
+          # SHA court du commit (7 caractères)
+          SHA=$(echo ${{ github.sha }} | cut -c1-7)
+          echo "IMAGE_TAG=$SHA" >> $GITHUB_OUTPUT
+          echo "Tag image : $SHA"
+
+      # 5. Builder l'image backend
+      - name: Build Backend image
         run: |
           docker build \
             -f peakFit/Dockerfile.backend \
-            -t peakfit-backend:latest \
+            -t ${{ env.ECR_REGISTRY }}/${{ env.BACKEND_REPO }}:${{ steps.tag.outputs.IMAGE_TAG }} \
+            -t ${{ env.ECR_REGISTRY }}/${{ env.BACKEND_REPO }}:latest \
             peakFit/
 
-      - name: Build Frontend
+      # 6. Pusher vers ECR
+      - name: Push Backend to ECR
         run: |
-          docker build \
-            -f peakFit/Dockerfile.frontend \
-            -t peakfit-frontend:latest \
-            peakFit/
+          docker push ${{ env.ECR_REGISTRY }}/${{ env.BACKEND_REPO }}:${{ steps.tag.outputs.IMAGE_TAG }}
+          docker push ${{ env.ECR_REGISTRY }}/${{ env.BACKEND_REPO }}:latest
+          echo "✅ Backend pushé : ${{ steps.tag.outputs.IMAGE_TAG }}"
 
-      - name: Sauvegarder images
-        run: |
-          docker save peakfit-backend:latest  -o backend.tar
-          docker save peakfit-frontend:latest -o frontend.tar
+    # Partager le tag avec les jobs suivants
+    outputs:
+      image_tag: ${{ steps.tag.outputs.IMAGE_TAG }}
 
-      - name: Upload images
-        uses: actions/upload-artifact@v4
-        with:
-          name: docker-images
-          path: "*.tar"
-          retention-days: 1
-
-  deploy:
-    name: Deploy to EC2
+  # ──────────────────────────────────────────────────────────
+  # JOB 2 : Build + Push Frontend
+  # ──────────────────────────────────────────────────────────
+  build-frontend:
+    name: Build & Push Frontend
     runs-on: ubuntu-latest
-    needs: build
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-      - name: Download images
-        uses: actions/download-artifact@v4
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
         with:
-          name: docker-images
-          path: ./
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: ${{ env.AWS_REGION }}
 
-      - name: Configurer cle SSH
+      - name: Login to Amazon ECR
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Set image tag
+        id: tag
         run: |
-          mkdir -p ~/.ssh
-          echo "${{ secrets.EC2_KEY }}" | sed 's/\\n/\n/g' > ~/.ssh/peakfit-key.pem
-          chmod 600 ~/.ssh/peakfit-key.pem
+          SHA=$(echo ${{ github.sha }} | cut -c1-7)
+          echo "IMAGE_TAG=$SHA" >> $GITHUB_OUTPUT
 
-      - name: Deploy sur EC2-1
+      - name: Build Frontend image
         run: |
-          IP="100.48.216.132"
-          
-          # Transfert des fichiers
-          scp -i ~/.ssh/peakfit-key.pem -o StrictHostKeyChecking=no \
-            backend.tar frontend.tar \
-            ansible/docker-compose.yml ansible/nginx.conf \
-            ec2-user@$IP:/tmp/
-          
-          # Déploiement via SSH
-          ssh -i ~/.ssh/peakfit-key.pem -o StrictHostKeyChecking=no ec2-user@$IP << 'SSHEOF'
-            set -e
-            sudo yum install -y docker
-            sudo systemctl start docker
-            sudo systemctl enable docker
-            
-            # Docker Compose
-            sudo curl -L "https://github.com/docker/compose/releases/download/v2.20.0/docker-compose-linux-x86_64" \
-              -o /usr/local/bin/docker-compose
-            sudo chmod +x /usr/local/bin/docker-compose
-            
-            # Prépare le dossier
-            sudo mkdir -p /opt/peakfit
-            sudo cp /tmp/docker-compose.yml /opt/peakfit/
-            sudo cp /tmp/nginx.conf /opt/peakfit/
-            
-            # Charge les images
-            sudo docker load -i /tmp/backend.tar
-            sudo docker load -i /tmp/frontend.tar
-            
-            # Lance les containers
-            cd /opt/peakfit
-            sudo /usr/local/bin/docker-compose down || true
-            sudo /usr/local/bin/docker-compose up -d
-            
-            sudo docker ps
-          SSHEOF
+          # REACT_APP_API_URL bakée dans le build React
+          # Pointe vers le backend via NodePort
+          docker build \
+            -f peakFit/Dockerfile.frontend \
+            --build-arg REACT_APP_API_URL=http://${{ env.NODE_IP }}:30091 \
+            -t ${{ env.ECR_REGISTRY }}/${{ env.FRONTEND_REPO }}:${{ steps.tag.outputs.IMAGE_TAG }} \
+            -t ${{ env.ECR_REGISTRY }}/${{ env.FRONTEND_REPO }}:latest \
+            peakFit/
 
-      - name: Deploy sur EC2-2
+      - name: Push Frontend to ECR
         run: |
-          IP="54.161.131.120"
-          
-          scp -i ~/.ssh/peakfit-key.pem -o StrictHostKeyChecking=no \
-            backend.tar frontend.tar \
-            ansible/docker-compose.yml ansible/nginx.conf \
-            ec2-user@$IP:/tmp/
-          
-          ssh -i ~/.ssh/peakfit-key.pem -o StrictHostKeyChecking=no ec2-user@$IP << 'SSHEOF'
-            set -e
-            sudo yum install -y docker
-            sudo systemctl start docker
-            sudo systemctl enable docker
-            
-            sudo curl -L "https://github.com/docker/compose/releases/download/v2.20.0/docker-compose-linux-x86_64" \
-              -o /usr/local/bin/docker-compose
-            sudo chmod +x /usr/local/bin/docker-compose
-            
-            sudo mkdir -p /opt/peakfit
-            sudo cp /tmp/docker-compose.yml /opt/peakfit/
-            sudo cp /tmp/nginx.conf /opt/peakfit/
-            
-            sudo docker load -i /tmp/backend.tar
-            sudo docker load -i /tmp/frontend.tar
-            
-            cd /opt/peakfit
-            sudo /usr/local/bin/docker-compose down || true
-            sudo /usr/local/bin/docker-compose up -d
-            
-            sudo docker ps
-          SSHEOF
+          docker push ${{ env.ECR_REGISTRY }}/${{ env.FRONTEND_REPO }}:${{ steps.tag.outputs.IMAGE_TAG }}
+          docker push ${{ env.ECR_REGISTRY }}/${{ env.FRONTEND_REPO }}:latest
+          echo "✅ Frontend pushé : ${{ steps.tag.outputs.IMAGE_TAG }}"
 
-      - name: URL finale
-        run: echo "http://peakfit-alb-1215627608.us-east-1.elb.amazonaws.com"
+    outputs:
+      image_tag: ${{ steps.tag.outputs.IMAGE_TAG }}
+
+  # ──────────────────────────────────────────────────────────
+  # JOB 3 : Déploiement sur EKS
+  # Attend que les deux builds soient terminés
+  # ──────────────────────────────────────────────────────────
+  deploy:
+    name: Deploy to EKS
+    runs-on: ubuntu-latest
+    # Attendre les jobs de build
+    needs: [build-backend, build-frontend]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      # Configurer kubectl pour accéder au cluster EKS
+      - name: Configure kubectl
+        run: |
+          aws eks update-kubeconfig \
+            --region ${{ env.AWS_REGION }} \
+            --name ${{ env.EKS_CLUSTER }}
+          echo "✅ kubectl configuré"
+          kubectl cluster-info
+
+      # Mettre à jour l'image du backend
+      - name: Deploy Backend
+        run: |
+          IMAGE_TAG=${{ needs.build-backend.outputs.image_tag }}
+
+          # Mettre à jour l'image dans le Deployment
+          kubectl set image deployment/backend \
+            backend=${{ env.ECR_REGISTRY }}/${{ env.BACKEND_REPO }}:${IMAGE_TAG} \
+            -n ${{ env.K8S_NAMESPACE }}
+
+          # Attendre que le rollout soit terminé
+          kubectl rollout status deployment/backend \
+            -n ${{ env.K8S_NAMESPACE }} \
+            --timeout=300s
+
+          echo "✅ Backend déployé : ${IMAGE_TAG}"
+
+      # Mettre à jour l'image du frontend
+      - name: Deploy Frontend
+        run: |
+          IMAGE_TAG=${{ needs.build-frontend.outputs.image_tag }}
+
+          kubectl set image deployment/frontend \
+            frontend=${{ env.ECR_REGISTRY }}/${{ env.FRONTEND_REPO }}:${IMAGE_TAG} \
+            -n ${{ env.K8S_NAMESPACE }}
+
+          kubectl rollout status deployment/frontend \
+            -n ${{ env.K8S_NAMESPACE }} \
+            --timeout=180s
+
+          echo "✅ Frontend déployé : ${IMAGE_TAG}"
+
+      # Vérifier que tout tourne bien après déploiement
+      - name: Verify deployment
+        run: |
+          echo "=== Pods status ==="
+          kubectl get pods -n ${{ env.K8S_NAMESPACE }}
+
+          echo "=== Services ==="
+          kubectl get svc -n ${{ env.K8S_NAMESPACE }}
+
+      # Test de santé du backend après déploiement
+      - name: Smoke test Backend
+        run: |
+          echo "Test du backend..."
+          # Attendre 30s que le pod soit prêt
+          sleep 30
+
+          # Tester le endpoint de santé
+          RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" \
+            http://${{ env.NODE_IP }}:30091/api/health)
+
+          if [ "$RESPONSE" = "200" ]; then
+            echo "✅ Backend health check : OK (HTTP $RESPONSE)"
+          else
+            echo "❌ Backend health check : FAILED (HTTP $RESPONSE)"
+            exit 1
+          fi
+
+      # Résumé du déploiement
+      - name: Deployment summary
+        if: always()
+        run: |
+          echo "=================================="
+          echo "   DÉPLOIEMENT PEAKFIT TERMINÉ"
+          echo "=================================="
+          echo "Frontend  : http://${{ env.NODE_IP }}:30003"
+          echo "Backend   : http://${{ env.NODE_IP }}:30091"
+          echo "Prometheus: http://${{ env.NODE_IP }}:30090"
+          echo "Grafana   : http://${{ env.NODE_IP }}:30030"
+          echo "=================================="
