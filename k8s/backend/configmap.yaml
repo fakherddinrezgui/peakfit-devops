@@ -1,0 +1,28 @@
+# ============================================================
+# ConfigMap Backend — Configuration Spring Boot
+# Contient les valeurs non sensibles
+#
+# URL MySQL : on utilise le nom du Service "mysql-svc"
+# CoreDNS résout "mysql-svc" → 172.20.106.104 automatiquement
+# C'est l'équivalent du hostname "mysql" dans docker-compose
+# ============================================================
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: backend-config
+  namespace: peakfit
+  labels:
+    app: backend
+    project: peakfit
+data:
+  # URL JDBC vers le Service MySQL
+  # mysql-svc = nom du Service créé à l'étape 3
+  # peakfit   = nom de la base de données
+  SPRING_DATASOURCE_URL: "jdbc:mysql://mysql-svc:3306/peakfit?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC"
+
+  # Port Spring Boot — correspond à votre application.properties
+  SERVER_PORT: "8091"
+
+  # URL du frontend pour CORS
+  # On met * pour l'instant — à restreindre en production
+  FRONTEND_URL: "*"

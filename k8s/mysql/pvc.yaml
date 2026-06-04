@@ -1,0 +1,31 @@
+# ============================================================
+# PersistentVolumeClaim MySQL
+# Demande un volume EBS de 5GB pour stocker les données MySQL
+#
+# AWS Academy crée automatiquement un volume EBS gp2
+# Les données survivent aux redémarrages du pod MySQL
+#
+# storageClassName: gp2 — seul type disponible dans Academy
+# (gp3 n'est pas toujours disponible)
+# ============================================================
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: mysql-pvc
+  namespace: peakfit
+  labels:
+    app: mysql
+    project: peakfit
+spec:
+  # ReadWriteOnce = un seul pod peut écrire à la fois
+  # Correct pour MySQL qui ne supporte pas l'écriture multi-pods
+  accessModes:
+    - ReadWriteOnce
+
+  # gp2 = SSD généraliste, disponible dans AWS Academy
+  storageClassName: gp2
+
+  resources:
+    requests:
+      # 5GB suffisant pour un projet académique
+      storage: 5Gi

@@ -1,0 +1,125 @@
+# ============================================================
+# Deployment MySQL 8.0
+# Correspond exactement à la config du docker-compose.yml
+#
+# Points importants :
+# - 1 seul replica (MySQL ne scale pas horizontalement)
+# - Variables d'env injectées depuis le Secret
+# - Volume monté sur /var/lib/mysql (données persistantes)
+# - Healthcheck via mysqladmin ping
+# ============================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mysql
+  namespace: peakfit
+  labels:
+    app: mysql
+    project: peakfit
+spec:
+  # MySQL ne supporte pas plusieurs replicas en écriture
+  # On garde 1 seul pod
+  replicas: 1
+
+  selector:
+    matchLabels:
+      app: mysql
+
+  # Stratégie Recreate : arrête l'ancien pod avant d'en créer un nouveau
+  # Nécessaire car le volume EBS ne peut être monté que sur 1 pod à la fois
+  strategy:
+    type: Recreate
+
+  template:
+    metadata:
+      labels:
+        app: mysql
+        project: peakfit
+    spec:
+      containers:
+        - name: mysql
+          # Même version que dans votre docker-compose.yml
+          image: mysql:8.0
+
+          ports:
+            - containerPort: 3306
+              name: mysql
+
+          # Variables injectées depuis le Secret mysql-secret
+          # Plus sécurisé que de les mettre en clair ici
+          env:
+            - name: MYSQL_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: mysql-secret
+                  key: MYSQL_ROOT_PASSWORD
+
+            - name: MYSQL_DATABASE
+              valueFrom:
+                secretKeyRef:
+                  name: mysql-secret
+                  key: MYSQL_DATABASE
+
+            - name: MYSQL_USER
+              valueFrom:
+                secretKeyRef:
+                  name: mysql-secret
+                  key: MYSQL_USER
+
+            - name: MYSQL_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: mysql-secret
+                  key: MYSQL_PASSWORD
+
+          # Ressources limitées pour ne pas saturer les nodes t3.medium
+          resources:
+            requests:
+              # Minimum garanti au pod
+              memory: "256Mi"
+              cpu: "250m"
+            limits:
+              # Maximum autorisé
+              memory: "512Mi"
+              cpu: "500m"
+
+          # Vérification que MySQL est vivant
+          # K8s redémarre le pod si ce check échoue
+          livenessProbe:
+            exec:
+              command:
+                - mysqladmin
+                - ping
+                - -h
+                - localhost
+            # Attendre 30s avant le premier check
+            # MySQL met du temps à démarrer
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+
+          # Vérification que MySQL est prêt à recevoir des connexions
+          # Le backend attend ce signal avant de démarrer
+          readinessProbe:
+            exec:
+              command:
+                - mysqladmin
+                - ping
+                - -h
+                - localhost
+            initialDelaySeconds: 15
+            periodSeconds: 5
+            timeoutSeconds: 3
+
+          # Monter le volume sur le dossier des données MySQL
+          volumeMounts:
+            - name: mysql-storage
+              # Chemin standard MySQL pour les données
+              mountPath: /var/lib/mysql
+
+      # Référencer le PVC créé précédemment
+      volumes:
+        - name: mysql-storage
+          persistentVolumeClaim:
+            claimName: mysql-pvc

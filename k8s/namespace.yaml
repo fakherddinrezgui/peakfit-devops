@@ -1,0 +1,12 @@
+# ============================================================
+# Namespace peakfit
+# Isole toutes les ressources du projet dans un espace dédié
+# Permet de faire : kubectl get all -n peakfit
+# ============================================================
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: peakfit
+  labels:
+    project: peakfit
+    env: production

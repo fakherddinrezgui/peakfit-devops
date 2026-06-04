@@ -1,0 +1,48 @@
+# ============================================================
+# Cluster EKS PeakFit — AWS Academy Learner Lab
+# Solution : passer LabRole explicitement partout
+# pour éviter toute tentative de création de rôle IAM
+# ============================================================
+
+apiVersion: eksctl.io/v1alpha5
+kind: ClusterConfig
+
+metadata:
+  name: peakfit-cluster
+  region: us-east-1
+  version: "1.32"
+
+# ── Désactiver tout ce qui crée des rôles IAM ────────────────
+iam:
+  withOIDC: false
+  # Passer LabRole comme rôle de service du cluster
+  serviceRoleARN: arn:aws:iam::634166838788:role/LabRole
+
+# ── VPC sans NAT Gateway ─────────────────────────────────────
+vpc:
+  cidr: 10.0.0.0/16
+  nat:
+    gateway: Disable
+
+# ── Node Group avec LabRole explicite ────────────────────────
+managedNodeGroups:
+  - name: peakfit-nodes
+    instanceType: t3.medium
+    minSize: 1
+    maxSize: 3
+    desiredCapacity: 2
+    volumeSize: 20
+    volumeType: gp2
+    privateNetworking: false
+
+    # Utiliser LabRole pour les nodes — évite la création de rôle
+    iam:
+      instanceRoleARN: arn:aws:iam::634166838788:role/LabRole
+
+    labels:
+      role: worker
+      project: peakfit
+
+# ── Pas d'add-ons gérés — on les installera manuellement ─────
+# Les add-ons nécessitent parfois des rôles IAM supplémentaires
+# On les installe après la création du cluster

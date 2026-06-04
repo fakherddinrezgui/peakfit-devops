@@ -1,0 +1,24 @@
+# ============================================================
+# Service MySQL — ClusterIP
+# Permet au backend de joindre MySQL via "mysql-svc:3306"
+# au lieu d'une IP qui change à chaque redémarrage du pod
+# ============================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: mysql-svc
+  namespace: peakfit
+  labels:
+    app: mysql
+    project: peakfit
+spec:
+  # ClusterIP : accessible uniquement dans le cluster
+  # MySQL ne doit jamais être exposé à l'extérieur
+  type: ClusterIP
+  selector:
+    app: mysql
+  ports:
+    - name: mysql
+      protocol: TCP
+      port: 3306
+      targetPort: 3306

@@ -1,0 +1,145 @@
+# ============================================================
+# Deployment Backend Spring Boot
+#
+# IMPORTANT : l'image vient d'ECR (Amazon Container Registry)
+# On va d'abord utiliser une image buildée localement
+# puis on connectera ECR à l'étape CI/CD
+#
+# Le backend attend que MySQL soit prêt via initContainers
+# ============================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backend
+  namespace: peakfit
+  labels:
+    app: backend
+    project: peakfit
+spec:
+  # 1 replica pour commencer — on peut scaler après
+  replicas: 1
+
+  selector:
+    matchLabels:
+      app: backend
+
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      # Toujours au moins 1 pod disponible pendant le déploiement
+      maxUnavailable: 0
+      # Maximum 1 pod supplémentaire pendant la mise à jour
+      maxSurge: 1
+
+  template:
+    metadata:
+      labels:
+        app: backend
+        project: peakfit
+    spec:
+      # ── Init Container ──────────────────────────────────────
+      # Attend que MySQL soit prêt AVANT de démarrer Spring Boot
+      # Évite les erreurs "Connection refused" au démarrage
+      initContainers:
+        - name: wait-for-mysql
+          image: busybox:1.35
+          command:
+            - sh
+            - -c
+            - |
+              echo "Attente de MySQL..."
+              until nc -z mysql-svc 3306; do
+                echo "MySQL pas encore prêt - attente 3s..."
+                sleep 3
+              done
+              echo "MySQL est prêt ✅"
+
+      # ── Container Principal ─────────────────────────────────
+      containers:
+        - name: backend
+          # Image ECR — sera mise à jour par le pipeline CI/CD
+          # Format : ACCOUNT_ID.dkr.ecr.REGION.amazonaws.com/REPO:TAG
+          image: 634166838788.dkr.ecr.us-east-1.amazonaws.com/peakfit-backend:latest
+
+          # Toujours télécharger la dernière version de l'image
+          imagePullPolicy: Always
+
+          ports:
+            - containerPort: 8091
+              name: http
+
+          # ── Variables depuis ConfigMap ──────────────────────
+          env:
+            - name: SPRING_DATASOURCE_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: backend-config
+                  key: SPRING_DATASOURCE_URL
+
+            - name: SERVER_PORT
+              valueFrom:
+                configMapKeyRef:
+                  name: backend-config
+                  key: SERVER_PORT
+
+            - name: FRONTEND_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: backend-config
+                  key: FRONTEND_URL
+
+          # ── Variables depuis Secret ─────────────────────────
+            - name: SPRING_DATASOURCE_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: backend-secret
+                  key: DB_USERNAME
+
+            - name: SPRING_DATASOURCE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: backend-secret
+                  key: DB_PASSWORD
+
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: backend-secret
+                  key: JWT_SECRET
+
+            - name: JWT_EXPIRATION
+              valueFrom:
+                secretKeyRef:
+                  name: backend-secret
+                  key: JWT_EXPIRATION
+
+          # ── Ressources ──────────────────────────────────────
+          resources:
+            requests:
+              # Spring Boot nécessite plus de mémoire que MySQL
+              memory: "512Mi"
+              cpu: "250m"
+            limits:
+              memory: "768Mi"
+              cpu: "500m"
+
+          # ── Health Checks ───────────────────────────────────
+          # Spring Boot démarre lentement — initialDelaySeconds élevé
+          livenessProbe:
+            httpGet:
+              path: /api/auth/me
+              port: 8091
+            # Attendre 90s — Spring Boot + connexion MySQL prend du temps
+            initialDelaySeconds: 90
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 3
+
+          readinessProbe:
+            httpGet:
+              path: /api/auth/me
+              port: 8091
+            initialDelaySeconds: 60
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
