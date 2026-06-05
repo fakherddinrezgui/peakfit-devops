@@ -22,7 +22,7 @@ import java.util.List;
 @EnableWebSecurity
 public class SecurityConfig {
 
-    @Value("${frontend.url}")
+    @Value("${frontend.url:http://localhost:3000}")
     private String frontendUrl;
 
     private final JwtAuthFilter jwtAuthFilter;
@@ -38,7 +38,6 @@ public class SecurityConfig {
                 .cors(cors -> cors.configurationSource(corsConfigurationSource()))
                 .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
-                        // ── Public endpoints — no token required ──
                         .requestMatchers(
                                 "/api/auth/login",
                                 "/api/auth/register",
@@ -46,7 +45,6 @@ public class SecurityConfig {
                                 "/api/fix-passwords",
                                 "/error"
                         ).permitAll()
-                        // ── Everything else requires a valid JWT ──
                         .anyRequest().authenticated()
                 )
                 .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class);
@@ -58,15 +56,27 @@ public class SecurityConfig {
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration config = new CorsConfiguration();
 
-        // Allow both localhost:3000 and localhost:3001 just in case
-        config.setAllowedOrigins(List.of(
-                frontendUrl,
+        // ── Utiliser allowedOriginPatterns au lieu de allowedOrigins ──
+        // Cela résout l'erreur Spring Security avec allowCredentials=true
+        // allowedOriginPatterns supporte * avec allowCredentials
+        config.setAllowedOriginPatterns(List.of(
                 "http://localhost:3000",
                 "http://localhost:3001",
-                "http://localhost:8091"
+                "http://localhost:8091",
+                "http://" + frontendUrl,
+                frontendUrl,
+                // Accepter toutes les IPs EC2 AWS (pattern)
+                "http://*.compute-1.amazonaws.com:*",
+                "http://*.amazonaws.com:*",
+                // Accepter l'IP du node K8s directement
+                "http://44.206.251.206:*",
+                "http://3.236.106.125:*",
+                "http://44.210.105.239:*"
         ));
+
         config.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"));
         config.setAllowedHeaders(List.of("*"));
+        config.setExposedHeaders(List.of("Authorization"));
         config.setAllowCredentials(true);
 
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
