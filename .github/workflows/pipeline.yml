@@ -1,18 +1,11 @@
-# ============================================================
-# Pipeline CI/CD PeakFit — GitHub Actions → EKS
-# Adapté AWS Academy Learner Lab
-#
-# Déclencheurs :
-#   - Push sur main → déploiement automatique
-#   - workflow_dispatch → déploiement manuel
-# ============================================================
 name: PeakFit CI/CD Pipeline
 
 on:
   push:
     branches: ["main"]
-  # Permet de déclencher manuellement depuis l'UI GitHub
-  # Utile quand les credentials Academy ont été renouvelés
+
+  # Permet de declencher manuellement depuis l'interface GitHub
+  # Utile apres renouvellement des credentials AWS Academy
   workflow_dispatch:
     inputs:
       deploy_env:
@@ -20,7 +13,8 @@ on:
         required: true
         default: "production"
 
-# ── Variables globales ───────────────────────────────────────
+# ── Variables globales du pipeline ──────────────────────────
+# Ces variables sont accessibles dans tous les jobs via ${{ env.NOM }}
 env:
   AWS_REGION: us-east-1
   EKS_CLUSTER: peakfit-cluster
@@ -28,23 +22,31 @@ env:
   BACKEND_REPO: peakfit-backend
   FRONTEND_REPO: peakfit-frontend
   K8S_NAMESPACE: peakfit
-  # IP du node pour REACT_APP_API_URL
-  NODE_IP: 
 
 jobs:
-  # ──────────────────────────────────────────────────────────
-  # JOB 1 : Build + Push Backend
-  # ──────────────────────────────────────────────────────────
+
+  # ============================================================
+  # JOB 1 : BUILD ET PUSH DU BACKEND
+  # ============================================================
+  # Ce job compile le code Java avec Maven et cree une image
+  # Docker Spring Boot qu'il pousse vers Amazon ECR.
+  # L'image est taguee avec le SHA court du commit Git
+  # pour garantir la tracabilite de chaque deploiement.
+  # ============================================================
   build-backend:
-    name: Build & Push Backend
+    name: Build and Push Backend
     runs-on: ubuntu-latest
 
     steps:
-      # 1. Récupérer le code source
+
+      # Etape 1 : Recuperer le code source depuis GitHub
+      # actions/checkout telecharge le depot dans le runner
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # 2. Configurer les credentials AWS Academy
+      # Etape 2 : Configurer les credentials AWS Academy
+      # Ces secrets sont stockes dans GitHub Secrets (jamais en clair)
+      # AWS_SESSION_TOKEN est obligatoire pour AWS Academy (credentials temporaires)
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -53,22 +55,32 @@ jobs:
           aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
           aws-region: ${{ env.AWS_REGION }}
 
-      # 3. Se connecter à ECR
+      # Etape 3 : Se connecter a Amazon ECR
+      # ECR est le registry Docker prive d'AWS
+      # Cette action genere un token d'authentification temporaire
       - name: Login to Amazon ECR
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
 
-      # 4. Générer un tag unique basé sur le SHA du commit
-      - name: Set image tag
+      # Etape 4 : Generer le tag de l'image Docker
+      # On utilise les 7 premiers caracteres du SHA du commit
+      # Exemple : commit abc1234def -> tag = abc1234
+      # Avantage : chaque image est unique et tracable
+      - name: Set image tag from commit SHA
         id: tag
         run: |
-          # SHA court du commit (7 caractères)
+          # Extraire les 7 premiers caracteres du SHA Git
           SHA=$(echo ${{ github.sha }} | cut -c1-7)
+          # Exporter la variable pour les etapes suivantes
           echo "IMAGE_TAG=$SHA" >> $GITHUB_OUTPUT
-          echo "Tag image : $SHA"
+          echo "Tag de l image : $SHA"
 
-      # 5. Builder l'image backend
-      - name: Build Backend image
+      # Etape 5 : Construire l'image Docker du backend
+      # Dockerfile.backend utilise un build multi-stage :
+      #   Stage 1 : Maven compile le code Java -> genere app.jar
+      #   Stage 2 : Image JRE Alpine legere avec app.jar seulement
+      # Deux tags : le SHA du commit + "latest" pour facilite
+      - name: Build Backend Docker image
         run: |
           docker build \
             -f peakFit/Dockerfile.backend \
@@ -76,25 +88,38 @@ jobs:
             -t ${{ env.ECR_REGISTRY }}/${{ env.BACKEND_REPO }}:latest \
             peakFit/
 
-      # 6. Pusher vers ECR
-      - name: Push Backend to ECR
+      # Etape 6 : Pousser l'image vers Amazon ECR
+      # Les deux tags sont pousses (SHA + latest)
+      - name: Push Backend image to ECR
         run: |
           docker push ${{ env.ECR_REGISTRY }}/${{ env.BACKEND_REPO }}:${{ steps.tag.outputs.IMAGE_TAG }}
           docker push ${{ env.ECR_REGISTRY }}/${{ env.BACKEND_REPO }}:latest
-          echo "✅ Backend pushé : ${{ steps.tag.outputs.IMAGE_TAG }}"
+          echo "Backend pousse avec le tag : ${{ steps.tag.outputs.IMAGE_TAG }}"
 
-    # Partager le tag avec les jobs suivants
+    # Partager le tag avec le job deploy pour qu'il utilise la bonne image
     outputs:
       image_tag: ${{ steps.tag.outputs.IMAGE_TAG }}
 
-  # ──────────────────────────────────────────────────────────
-  # JOB 2 : Build + Push Frontend
-  # ──────────────────────────────────────────────────────────
+
+  # ============================================================
+  # JOB 2 : BUILD ET PUSH DU FRONTEND
+  # ============================================================
+  # Ce job construit l'application React et cree une image Docker
+  # Nginx qui sert les fichiers statiques ET proxie les appels API
+  # vers le backend via le bloc location /api/ dans nginx.conf.
+  #
+  # IMPORTANT : REACT_APP_API_URL=/api (relatif)
+  # Le Nginx du pod frontend proxie /api/ vers backend-svc:8091
+  # via la ConfigMap nginx-cors-config montee dans le deployment.
+  # Cela evite de coder en dur l'IP du node EC2 qui change
+  # a chaque redemarrage de la session AWS Academy.
+  # ============================================================
   build-frontend:
-    name: Build & Push Frontend
+    name: Build and Push Frontend
     runs-on: ubuntu-latest
 
     steps:
+
       - name: Checkout code
         uses: actions/checkout@v4
 
@@ -109,43 +134,58 @@ jobs:
       - name: Login to Amazon ECR
         uses: aws-actions/amazon-ecr-login@v2
 
-      - name: Set image tag
+      - name: Set image tag from commit SHA
         id: tag
         run: |
           SHA=$(echo ${{ github.sha }} | cut -c1-7)
           echo "IMAGE_TAG=$SHA" >> $GITHUB_OUTPUT
 
-      - name: Build Frontend image
+      # Construction de l'image frontend
+      # REACT_APP_API_URL=/api : URL relative - le navigateur envoie
+      # les requetes API vers /api/... sur le meme domaine
+      # Nginx intercepte ces requetes et les proxie vers backend-svc:8091
+      # Cela fonctionne quelle que soit l'IP du node EC2
+      - name: Build Frontend Docker image
         run: |
-          # REACT_APP_API_URL bakée dans le build React
-          # Pointe vers le backend via NodePort
           docker build \
             -f peakFit/Dockerfile.frontend \
-            --build-arg REACT_APP_API_URL=http://${{ env.NODE_IP }}:30091 \
+            --build-arg REACT_APP_API_URL=/api \
             -t ${{ env.ECR_REGISTRY }}/${{ env.FRONTEND_REPO }}:${{ steps.tag.outputs.IMAGE_TAG }} \
             -t ${{ env.ECR_REGISTRY }}/${{ env.FRONTEND_REPO }}:latest \
             peakFit/
 
-      - name: Push Frontend to ECR
+      - name: Push Frontend image to ECR
         run: |
           docker push ${{ env.ECR_REGISTRY }}/${{ env.FRONTEND_REPO }}:${{ steps.tag.outputs.IMAGE_TAG }}
           docker push ${{ env.ECR_REGISTRY }}/${{ env.FRONTEND_REPO }}:latest
-          echo "✅ Frontend pushé : ${{ steps.tag.outputs.IMAGE_TAG }}"
+          echo "Frontend pousse avec le tag : ${{ steps.tag.outputs.IMAGE_TAG }}"
 
     outputs:
       image_tag: ${{ steps.tag.outputs.IMAGE_TAG }}
 
-  # ──────────────────────────────────────────────────────────
-  # JOB 3 : Déploiement sur EKS
-  # Attend que les deux builds soient terminés
-  # ──────────────────────────────────────────────────────────
+
+  # ============================================================
+  # JOB 3 : DEPLOIEMENT SUR AMAZON EKS
+  # ============================================================
+  # Ce job attend la fin des deux builds puis deploie les nouvelles
+  # images sur le cluster Kubernetes EKS.
+  #
+  # Strategie de deploiement : Rolling Update Kubernetes
+  #   - Kubernetes remplace les pods un par un
+  #   - L'ancien pod reste actif jusqu'a ce que le nouveau soit Ready
+  #   - Aucune interruption de service (zero downtime)
+  #
+  # En cas d'echec : kubectl rollout undo annule le deploiement
+  # et revient a la version precedente automatiquement.
+  # ============================================================
   deploy:
     name: Deploy to EKS
     runs-on: ubuntu-latest
-    # Attendre les jobs de build
+    # Ce job ne demarre que si les deux builds ont reussi
     needs: [build-backend, build-frontend]
 
     steps:
+
       - name: Checkout code
         uses: actions/checkout@v4
 
@@ -157,34 +197,51 @@ jobs:
           aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
           aws-region: ${{ env.AWS_REGION }}
 
-      # Configurer kubectl pour accéder au cluster EKS
-      - name: Configure kubectl
+      # Configurer kubectl pour communiquer avec le cluster EKS
+      # Cette commande met a jour ~/.kube/config avec les credentials EKS
+      - name: Configure kubectl for EKS cluster
         run: |
           aws eks update-kubeconfig \
             --region ${{ env.AWS_REGION }} \
             --name ${{ env.EKS_CLUSTER }}
-          echo "✅ kubectl configuré"
+          echo "kubectl configure sur : ${{ env.EKS_CLUSTER }}"
+          # Verifier que le cluster est accessible
           kubectl cluster-info
 
-      # Mettre à jour l'image du backend
-      - name: Deploy Backend
+      # Recuperer dynamiquement l'IP externe du node EC2
+      # L'IP change a chaque session AWS Academy - on ne la code pas en dur
+      - name: Get node external IP
+        id: node-ip
+        run: |
+          # Recuperer l'IP publique du premier node EC2
+          NODE_IP=$(kubectl get nodes -o wide \
+            --no-headers | awk '{print $7}' | head -1)
+          echo "IP du node EC2 : $NODE_IP"
+          # Exporter pour les etapes suivantes
+          echo "NODE_IP=$NODE_IP" >> $GITHUB_OUTPUT
+
+      # Deployer la nouvelle image backend sur Kubernetes
+      # kubectl set image met a jour l'image du container dans le Deployment
+      # Kubernetes declenche automatiquement un Rolling Update
+      - name: Deploy Backend to Kubernetes
         run: |
           IMAGE_TAG=${{ needs.build-backend.outputs.image_tag }}
 
-          # Mettre à jour l'image dans le Deployment
+          # Mettre a jour l'image du container "backend" dans le Deployment
           kubectl set image deployment/backend \
             backend=${{ env.ECR_REGISTRY }}/${{ env.BACKEND_REPO }}:${IMAGE_TAG} \
             -n ${{ env.K8S_NAMESPACE }}
 
-          # Attendre que le rollout soit terminé
+          # Attendre que le Rolling Update soit termine (max 5 minutes)
+          # Cette commande echoue si le deploiement ne reussit pas
           kubectl rollout status deployment/backend \
             -n ${{ env.K8S_NAMESPACE }} \
             --timeout=300s
 
-          echo "✅ Backend déployé : ${IMAGE_TAG}"
+          echo "Backend deploye avec le tag : ${IMAGE_TAG}"
 
-      # Mettre à jour l'image du frontend
-      - name: Deploy Frontend
+      # Deployer la nouvelle image frontend sur Kubernetes
+      - name: Deploy Frontend to Kubernetes
         run: |
           IMAGE_TAG=${{ needs.build-frontend.outputs.image_tag }}
 
@@ -196,44 +253,56 @@ jobs:
             -n ${{ env.K8S_NAMESPACE }} \
             --timeout=180s
 
-          echo "✅ Frontend déployé : ${IMAGE_TAG}"
+          echo "Frontend deploye avec le tag : ${IMAGE_TAG}"
 
-      # Vérifier que tout tourne bien après déploiement
-      - name: Verify deployment
+      # Verifier l'etat de tous les pods apres deploiement
+      # Cette etape est informationnelle - elle ne bloque pas le pipeline
+      - name: Verify deployment status
         run: |
-          echo "=== Pods status ==="
-          kubectl get pods -n ${{ env.K8S_NAMESPACE }}
+          echo "=== Etat des pods ==="
+          kubectl get pods -n ${{ env.K8S_NAMESPACE }} -o wide
 
-          echo "=== Services ==="
+          echo "=== Services et NodePorts ==="
           kubectl get svc -n ${{ env.K8S_NAMESPACE }}
 
-      # Test de santé du backend après déploiement
-      - name: Smoke test Backend
+      # Test de sante du backend apres deploiement
+      # Appelle l'endpoint /api/health pour verifier que Spring Boot repond
+      # Si le code HTTP n'est pas 200, le pipeline echoue et on peut rollback
+      - name: Smoke test - Backend health check
         run: |
-          echo "Test du backend..."
-          # Attendre 30s que le pod soit prêt
+          echo "Demarrage du smoke test backend..."
+
+          # Attendre que le pod soit completement pret
           sleep 30
 
-          # Tester le endpoint de santé
-          RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" \
-            http://${{ env.NODE_IP }}:30091/api/health)
+          NODE_IP=${{ steps.node-ip.outputs.NODE_IP }}
 
+          # Appeler l'endpoint de sante Spring Boot Actuator
+          # curl -s : silencieux | -o /dev/null : ignorer le body
+          # -w "%{http_code}" : afficher uniquement le code HTTP retourne
+          RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" \
+            http://${NODE_IP}:30091/api/health)
+
+          # Verifier que le backend repond correctement
           if [ "$RESPONSE" = "200" ]; then
-            echo "✅ Backend health check : OK (HTTP $RESPONSE)"
+            echo "Backend health check : OK (HTTP $RESPONSE)"
           else
-            echo "❌ Backend health check : FAILED (HTTP $RESPONSE)"
+            echo "Backend health check : ECHEC (HTTP $RESPONSE)"
+            echo "Rollback automatique en cours..."
+            kubectl rollout undo deployment/backend -n ${{ env.K8S_NAMESPACE }}
             exit 1
           fi
 
-      # Résumé du déploiement
+      # Resume final du deploiement - s'affiche meme en cas d'echec
       - name: Deployment summary
         if: always()
         run: |
+          NODE_IP=${{ steps.node-ip.outputs.NODE_IP }}
           echo "=================================="
-          echo "   DÉPLOIEMENT PEAKFIT TERMINÉ"
+          echo "   DEPLOIEMENT PEAKFIT TERMINE"
           echo "=================================="
-          echo "Frontend  : http://${{ env.NODE_IP }}:30003"
-          echo "Backend   : http://${{ env.NODE_IP }}:30091"
-          echo "Prometheus: http://${{ env.NODE_IP }}:30090"
-          echo "Grafana   : http://${{ env.NODE_IP }}:30030"
-          echo "=================================="
+          echo "Frontend   : http://${NODE_IP}:30003"
+          echo "Backend    : http://${NODE_IP}:30091"
+          echo "Prometheus : http://${NODE_IP}:30090"
+          echo "Grafana    : http://${NODE_IP}:30030"
+          
