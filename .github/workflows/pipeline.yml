@@ -29,7 +29,7 @@ env:
   FRONTEND_REPO: peakfit-frontend
   K8S_NAMESPACE: peakfit
   # IP du node pour REACT_APP_API_URL
-  NODE_IP: 54.173.208.56
+  NODE_IP: 
 
 jobs:
   # ──────────────────────────────────────────────────────────
